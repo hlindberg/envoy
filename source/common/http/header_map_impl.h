@@ -50,18 +50,30 @@ public:                                                                         
 #define DEFINE_INLINE_HEADER_STRUCT(name) HeaderEntryImpl* name##_;
 
 /**
+ *
+ */
+class HeaderMapImpl;
+using HeaderMapImplPtr = std::unique_ptr<HeaderMapImpl>;
+
+/**
  * Implementation of Http::HeaderMap. This is heavily optimized for performance. Roughly, when
  * headers are added to the map, we do a hash lookup to see if it's one of the O(1) headers.
  * If it is, we store a reference to it that can be accessed later directly. Most high performance
  * paths use O(1) direct access. In general, we try to copy as little as possible and allocate as
  * little as possible in any of the paths.
+ * TODO(mattklein123): The end result of the header refactor should be to make this a fully
+ *   protected base class and/or a mix-in for the concrete header types below.
  */
 class HeaderMapImpl : public virtual HeaderMap, NonCopyable {
 public:
   HeaderMapImpl();
-  explicit HeaderMapImpl(
-      const std::initializer_list<std::pair<LowerCaseString, std::string>>& values);
-  explicit HeaderMapImpl(const HeaderMap& rhs) : HeaderMapImpl() { copyFrom(rhs); }
+  // The following "constructors" call virtual functions during construction and must use the
+  // creation pattern.
+  static HeaderMapImplPtr
+  create(const std::initializer_list<std::pair<LowerCaseString, std::string>>& values);
+  static HeaderMapImplPtr create(const HeaderMap& rhs);
+
+  static void copyFrom(HeaderMapImpl& lhs, const HeaderMap& rhs);
 
   /**
    * Add a header via full move. This is the expected high performance paths for codecs populating
@@ -99,9 +111,6 @@ public:
   void dumpState(std::ostream& os, int indent_level = 0) const override;
 
 protected:
-  // For tests only, unoptimized, they aren't intended for regular HeaderMapImpl users.
-  void copyFrom(const HeaderMap& rhs);
-
   struct HeaderEntryImpl : public HeaderEntry, NonCopyable {
     HeaderEntryImpl(const LowerCaseString& key);
     HeaderEntryImpl(const LowerCaseString& key, HeaderString&& value);
@@ -125,13 +134,10 @@ protected:
     const LowerCaseString* key_;
   };
 
+  // fixfix comment
   using EntryCb = StaticLookupResponse (*)(HeaderMapImpl&);
-
-  /**
-   * This is the static lookup table that is used to determine whether a header is one of the O(1)
-   * headers. This uses a trie for lookup time at most equal to the size of the incoming string.
-   */
-  struct StaticLookupTable; // Defined in header_map_impl.cc.
+  struct StaticLookupTable;
+  virtual const StaticLookupTable& staticLookupTable() const;
 
   struct AllInlineHeaders {
     void clear() { memset(this, 0, sizeof(*this)); }
@@ -215,11 +221,13 @@ protected:
                                      HeaderString&& value);
   HeaderEntry* getExisting(const LowerCaseString& key);
   HeaderEntryImpl* getExistingInline(absl::string_view key);
-
   void removeInline(HeaderEntryImpl** entry);
   void updateSize(uint64_t from_size, uint64_t to_size);
   void addSize(uint64_t size);
   void subtractSize(uint64_t size);
+  static void
+  initFromInitList(HeaderMapImpl& new_header_map,
+                   const std::initializer_list<std::pair<LowerCaseString, std::string>>& values);
 
   AllInlineHeaders inline_headers_;
   HeaderList headers_;
@@ -236,16 +244,20 @@ protected:
   virtual void verifyByteSize() {}
 
   ALL_INLINE_HEADERS(DEFINE_INLINE_HEADER_FUNCS)
-};
 
-using HeaderMapImplPtr = std::unique_ptr<HeaderMapImpl>;
+  friend class RequestHeaderMapImpl;
+};
 
 /**
  * Typed derived classes for all header map types.
  * TODO(mattklein123): In future changes we will be differentiating the implementation between
  * these classes to both fix bugs and improve performance.
  */
-class RequestHeaderMapImpl : public HeaderMapImpl, public RequestHeaderMap {};
+class RequestHeaderMapImpl : public HeaderMapImpl, public RequestHeaderMap {
+protected:
+  struct RequestHeaderStaticLookupTable;
+  const StaticLookupTable& staticLookupTable() const override;
+};
 using RequestHeaderMapImplPtr = std::unique_ptr<RequestHeaderMapImpl>;
 class RequestTrailerMapImpl : public HeaderMapImpl, public RequestTrailerMap {};
 using RequestTrailerMapImplPtr = std::unique_ptr<RequestTrailerMapImpl>;

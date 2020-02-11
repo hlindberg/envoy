@@ -494,13 +494,13 @@ template <typename HeaderMapT>
 class IsSubsetOfHeadersMatcherImpl : public testing::MatcherInterface<HeaderMapT> {
 public:
   explicit IsSubsetOfHeadersMatcherImpl(const HeaderMap& expected_headers)
-      : expected_headers_(expected_headers) {}
+      : expected_headers_(HeaderMapImpl::create(expected_headers)) {}
 
   IsSubsetOfHeadersMatcherImpl(IsSubsetOfHeadersMatcherImpl&& other) noexcept
-      : expected_headers_(other.expected_headers_) {}
+      : expected_headers_(HeaderMapImpl::create(other.expected_headers_)) {}
 
   IsSubsetOfHeadersMatcherImpl(const IsSubsetOfHeadersMatcherImpl& other)
-      : expected_headers_(other.expected_headers_) {}
+      : expected_headers_(HeaderMapImpl::create(other.expected_headers_)) {}
 
   bool MatchAndExplain(HeaderMapT headers, testing::MatchResultListener* listener) const override {
     // Collect header maps into vectors, to use for IsSubsetOf.
@@ -512,7 +512,7 @@ public:
     std::vector<std::pair<absl::string_view, absl::string_view>> arg_headers_vec;
     headers.iterate(get_headers_cb, &arg_headers_vec);
     std::vector<std::pair<absl::string_view, absl::string_view>> expected_headers_vec;
-    expected_headers_.iterate(get_headers_cb, &expected_headers_vec);
+    expected_headers_->iterate(get_headers_cb, &expected_headers_vec);
 
     return ExplainMatchResult(testing::IsSubsetOf(expected_headers_vec), arg_headers_vec, listener);
   }
@@ -521,26 +521,26 @@ public:
     *os << "is a subset of headers:\n" << expected_headers_;
   }
 
-  const HeaderMapImpl expected_headers_;
+  const HeaderMapImplPtr expected_headers_;
 };
 
 class IsSubsetOfHeadersMatcher {
 public:
   IsSubsetOfHeadersMatcher(const HeaderMap& expected_headers)
-      : expected_headers_(expected_headers) {}
+      : expected_headers_(HeaderMapImpl::create(expected_headers)) {}
 
   IsSubsetOfHeadersMatcher(IsSubsetOfHeadersMatcher&& other) noexcept
-      : expected_headers_(static_cast<const HeaderMap&>(other.expected_headers_)) {}
+      : expected_headers_(HeaderMapImpl::create(*other.expected_headers_)) {}
 
   IsSubsetOfHeadersMatcher(const IsSubsetOfHeadersMatcher& other)
-      : expected_headers_(static_cast<const HeaderMap&>(other.expected_headers_)) {}
+      : expected_headers_(HeaderMapImpl::create(*other.expected_headers_)) {}
 
   template <typename HeaderMapT> operator testing::Matcher<HeaderMapT>() const {
     return testing::MakeMatcher(new IsSubsetOfHeadersMatcherImpl<HeaderMapT>(expected_headers_));
   }
 
 private:
-  HeaderMapImpl expected_headers_;
+  const HeaderMapImplPtr expected_headers_;
 };
 
 IsSubsetOfHeadersMatcher IsSubsetOfHeaders(const HeaderMap& expected_headers);
@@ -549,13 +549,13 @@ template <typename HeaderMapT>
 class IsSupersetOfHeadersMatcherImpl : public testing::MatcherInterface<HeaderMapT> {
 public:
   explicit IsSupersetOfHeadersMatcherImpl(const HeaderMap& expected_headers)
-      : expected_headers_(expected_headers) {}
+      : expected_headers_(HeaderMapImpl::create(expected_headers)) {}
 
   IsSupersetOfHeadersMatcherImpl(IsSupersetOfHeadersMatcherImpl&& other) noexcept
-      : expected_headers_(other.expected_headers_) {}
+      : expected_headers_(HeaderMapImpl::create(*other.expected_headers_)) {}
 
   IsSupersetOfHeadersMatcherImpl(const IsSupersetOfHeadersMatcherImpl& other)
-      : expected_headers_(other.expected_headers_) {}
+      : expected_headers_(HeaderMapImpl::create(*other.expected_headers_)) {}
 
   bool MatchAndExplain(HeaderMapT headers, testing::MatchResultListener* listener) const override {
     // Collect header maps into vectors, to use for IsSupersetOf.
@@ -567,7 +567,7 @@ public:
     std::vector<std::pair<absl::string_view, absl::string_view>> arg_headers_vec;
     headers.iterate(get_headers_cb, &arg_headers_vec);
     std::vector<std::pair<absl::string_view, absl::string_view>> expected_headers_vec;
-    expected_headers_.iterate(get_headers_cb, &expected_headers_vec);
+    expected_headers_->iterate(get_headers_cb, &expected_headers_vec);
 
     return ExplainMatchResult(testing::IsSupersetOf(expected_headers_vec), arg_headers_vec,
                               listener);
@@ -577,26 +577,26 @@ public:
     *os << "is a superset of headers:\n" << expected_headers_;
   }
 
-  const HeaderMapImpl expected_headers_;
+  const HeaderMapImplPtr expected_headers_;
 };
 
 class IsSupersetOfHeadersMatcher {
 public:
   IsSupersetOfHeadersMatcher(const HeaderMap& expected_headers)
-      : expected_headers_(expected_headers) {}
+      : expected_headers_(HeaderMapImpl::create(expected_headers)) {}
 
   IsSupersetOfHeadersMatcher(IsSupersetOfHeadersMatcher&& other) noexcept
-      : expected_headers_(static_cast<const HeaderMap&>(other.expected_headers_)) {}
+      : expected_headers_(HeaderMapImpl::create(*other.expected_headers_)) {}
 
   IsSupersetOfHeadersMatcher(const IsSupersetOfHeadersMatcher& other)
-      : expected_headers_(static_cast<const HeaderMap&>(other.expected_headers_)) {}
+      : expected_headers_(HeaderMapImpl::create(*other.expected_headers_)) {}
 
   template <typename HeaderMapT> operator testing::Matcher<HeaderMapT>() const {
     return testing::MakeMatcher(new IsSupersetOfHeadersMatcherImpl<HeaderMapT>(expected_headers_));
   }
 
 private:
-  HeaderMapImpl expected_headers_;
+  const HeaderMapImplPtr expected_headers_;
 };
 
 IsSupersetOfHeadersMatcher IsSupersetOfHeaders(const HeaderMap& expected_headers);
@@ -605,7 +605,7 @@ IsSupersetOfHeadersMatcher IsSupersetOfHeaders(const HeaderMap& expected_headers
 
 MATCHER_P(HeaderMapEqual, rhs, "") {
   Http::HeaderMapImpl& lhs = *dynamic_cast<Http::HeaderMapImpl*>(arg.get());
-  bool equal = (lhs == *rhs);
+  bool equal = (lhs == *rhs->header_map_);
   if (!equal) {
     *result_listener << "\n"
                      << TestUtility::addLeftAndRightPadding("header map:") << "\n"

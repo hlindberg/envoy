@@ -17,6 +17,7 @@
 
 #include "common/buffer/buffer_impl.h"
 #include "common/common/c_smart_ptr.h"
+#include "common/common/empty_string.h"
 #include "common/common/thread.h"
 #include "common/config/version_converter.h"
 #include "common/http/header_map_impl.h"
@@ -620,22 +621,44 @@ private:
 namespace Http {
 
 /**
- * A test version of HeaderMapImpl that adds some niceties around letting us use
- * std::string instead of always doing LowerCaseString() by hand.
+ * fixfix
  */
-class TestHeaderMapImpl : public HeaderMapImpl {
+#define DEFINE_TEST_INLINE_HEADER_FUNCS(name)                                                      \
+public:                                                                                            \
+  const HeaderEntry* name() const override { return header_map_->name(); }                         \
+  void append##name(absl::string_view data, absl::string_view delimiter) override {                \
+    header_map_->append##name(data, delimiter);                                                    \
+  }                                                                                                \
+  void setReference##name(absl::string_view value) override {                                      \
+    header_map_->setReference##name(value);                                                        \
+  }                                                                                                \
+  void set##name(absl::string_view value) override { header_map_->set##name(value); }              \
+  void set##name(uint64_t value) override { header_map_->set##name(value); }                       \
+  void remove##name() override { header_map_->remove##name(); }
+
+/**
+ * fixfix
+ */
+template <class Interface, class Impl> class TestHeaderMapImplBase : public Interface {
 public:
-  TestHeaderMapImpl();
-  TestHeaderMapImpl(const std::initializer_list<std::pair<std::string, std::string>>& values);
-  TestHeaderMapImpl(const HeaderMap& rhs);
+  TestHeaderMapImplBase() : header_map_(std::make_unique<Impl>()) {}
+  TestHeaderMapImplBase(
+      const std::initializer_list<std::pair<std::string, std::string>>& values)
+      : TestHeaderMapImplBase() {
+    for (auto& value : values) {
+      addCopy(value.first, value.second);
+    }
+  }
+  TestHeaderMapImplBase(const TestHeaderMapImplBase& rhs) : TestHeaderMapImplBase(*rhs.header_map_) {
+  }
+  TestHeaderMapImplBase(const HeaderMap& rhs) : TestHeaderMapImplBase() {
+    HeaderMapImpl::copyFrom(*header_map_, rhs);
+  }
 
-  // The above constructor for TestHeaderMap is not an actual copy constructor.
-  TestHeaderMapImpl(const TestHeaderMapImpl& rhs);
-  TestHeaderMapImpl& operator=(const TestHeaderMapImpl& rhs);
-
-  bool operator==(const TestHeaderMapImpl& rhs) const { return HeaderMapImpl::operator==(rhs); }
-
-  friend std::ostream& operator<<(std::ostream& os, const TestHeaderMapImpl& p) {
+  bool operator==(const TestHeaderMapImplBase& rhs) const {
+    return *header_map_ == *rhs.header_map_;
+  }
+  friend std::ostream& operator<<(std::ostream& os, const TestHeaderMapImplBase& p) {
     p.iterate(
         [](const HeaderEntry& header, void* context) -> HeaderMap::Iterate {
           std::ostream* local_os = static_cast<std::ostream*>(context);
@@ -647,48 +670,94 @@ public:
     return os;
   }
 
-  using HeaderMapImpl::addCopy;
-  using HeaderMapImpl::remove;
-  void addCopy(const std::string& key, const std::string& value);
-  void remove(const std::string& key);
-  std::string get_(const std::string& key) const;
-  std::string get_(const LowerCaseString& key) const;
-  bool has(const std::string& key) const;
-  bool has(const LowerCaseString& key) const;
+  void addCopy(const std::string& key, const std::string& value) {
+    addCopy(LowerCaseString(key), value);
+  }
+  std::string get_(const std::string& key) const {
+    return get_(LowerCaseString(key));
+  }
+  std::string get_(const LowerCaseString& key) const {
+    const HeaderEntry* header = get(key);
+    if (!header) {
+      return EMPTY_STRING;
+    } else {
+      return std::string(header->value().getStringView());
+    }
+  }
+  bool has(const std::string& key) const {
+    return get(LowerCaseString(key)) != nullptr;
+  }
+  bool has(const LowerCaseString& key) const {
+    return get(key) != nullptr;
+  }
+  void remove(const std::string& key) {
+    remove(LowerCaseString(key));
+  }
 
-  void verifyByteSize() override { ASSERT(cached_byte_size_ == byteSizeInternal()); }
+  // HeaderMap
+  void addReference(const LowerCaseString& key, absl::string_view value) override {
+    header_map_->addReference(key, value);
+  }
+  void addReferenceKey(const LowerCaseString& key, uint64_t value) override {
+    header_map_->addReferenceKey(key, value);
+  }
+  void addReferenceKey(const LowerCaseString& key, absl::string_view value) override {
+    header_map_->addReferenceKey(key, value);
+  }
+  void addCopy(const LowerCaseString& key, uint64_t value) override {
+    header_map_->addCopy(key, value);
+  }
+  void addCopy(const LowerCaseString& key, absl::string_view value) override {
+    header_map_->addCopy(key, value);
+  }
+  void appendCopy(const LowerCaseString& key, absl::string_view value) override {
+    header_map_->appendCopy(key, value);
+  }
+  void setReference(const LowerCaseString& key, absl::string_view value) override {
+    header_map_->setReference(key, value);
+  }
+  void setReferenceKey(const LowerCaseString& key, absl::string_view value) override {
+    header_map_->setReferenceKey(key, value);
+  }
+  void setCopy(const LowerCaseString& key, absl::string_view value) override {
+    header_map_->setCopy(key, value);
+  }
+  uint64_t byteSize() const override { return header_map_->byteSize(); }
+  const HeaderEntry* get(const LowerCaseString& key) const override {
+    return header_map_->get(key);
+  }
+  void iterate(HeaderMap::ConstIterateCb cb, void* context) const override {
+    header_map_->iterate(cb, context);
+  }
+  void iterateReverse(HeaderMap::ConstIterateCb cb, void* context) const override {
+    header_map_->iterateReverse(cb, context);
+  }
+  HeaderMap::Lookup lookup(const LowerCaseString& key, const HeaderEntry** entry) const override {
+    return header_map_->lookup(key, entry);
+  }
+  void clear() override { header_map_->clear(); }
+  void remove(const LowerCaseString& key) override { header_map_->remove(key); }
+  void removePrefix(const LowerCaseString& key) override { header_map_->removePrefix(key); }
+  size_t size() const override { return header_map_->size(); }
+  bool empty() const override { return header_map_->empty(); }
+  void dumpState(std::ostream& os, int indent_level = 0) const override {
+    header_map_->dumpState(os, indent_level);
+  }
+
+  ALL_INLINE_HEADERS(DEFINE_TEST_INLINE_HEADER_FUNCS)
+  // fixfixvoid verifyByteSize() override { ASSERT(cached_byte_size_ == byteSizeInternal()); }
+
+  std::unique_ptr<Impl> header_map_;
 };
 
 /**
  * Typed test implementations for all of the concrete header types.
  */
-class TestRequestHeaderMapImpl : public TestHeaderMapImpl, public RequestHeaderMap {
-public:
-  TestRequestHeaderMapImpl(const std::initializer_list<std::pair<std::string, std::string>>& values)
-      : TestHeaderMapImpl(values) {}
-  TestRequestHeaderMapImpl(const HeaderMap& rhs) : TestHeaderMapImpl(rhs) {}
-};
-class TestRequestTrailerMapImpl : public TestHeaderMapImpl, public RequestTrailerMap {
-public:
-  TestRequestTrailerMapImpl(
-      const std::initializer_list<std::pair<std::string, std::string>>& values)
-      : TestHeaderMapImpl(values) {}
-  TestRequestTrailerMapImpl(const HeaderMap& rhs) : TestHeaderMapImpl(rhs) {}
-};
-class TestResponseHeaderMapImpl : public TestHeaderMapImpl, public ResponseHeaderMap {
-public:
-  TestResponseHeaderMapImpl(
-      const std::initializer_list<std::pair<std::string, std::string>>& values)
-      : TestHeaderMapImpl(values) {}
-  TestResponseHeaderMapImpl() : TestHeaderMapImpl() {}
-};
-class TestResponseTrailerMapImpl : public TestHeaderMapImpl, public ResponseTrailerMap {
-public:
-  TestResponseTrailerMapImpl(
-      const std::initializer_list<std::pair<std::string, std::string>>& values)
-      : TestHeaderMapImpl(values) {}
-  TestResponseTrailerMapImpl() : TestHeaderMapImpl() {}
-};
+using TestHeaderMapImpl = TestHeaderMapImplBase<HeaderMap, HeaderMapImpl>;
+using TestRequestHeaderMapImpl = TestHeaderMapImplBase<RequestHeaderMap, RequestHeaderMapImpl>;
+using TestRequestTrailerMapImpl = TestHeaderMapImplBase<RequestTrailerMap, RequestTrailerMapImpl>;
+using TestResponseHeaderMapImpl = TestHeaderMapImplBase<ResponseHeaderMap, ResponseHeaderMapImpl>;
+using TestResponseTrailerMapImpl = TestHeaderMapImplBase<ResponseTrailerMap, ResponseTrailerMapImpl>;
 
 // Helper method to create a header map from an initializer list. Useful due to make_unique's
 // inability to infer the initializer list type.
